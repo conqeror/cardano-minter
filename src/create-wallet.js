@@ -1,4 +1,5 @@
-const cardano = require('./cardano')
+import cardano from './cardano.js'
+import enquirer from "enquirer";
 
 const createWallet = (account) => {
   const payment = cardano.addressKeyGen(account);
@@ -11,4 +12,10 @@ const createWallet = (account) => {
   return cardano.wallet(account);
 };
 
-createWallet("ADAPI")
+const {walletName} = await enquirer.prompt({
+  type: 'input',
+  name: 'receiver',
+  message: 'Enter wallet name'
+})
+
+createWallet(walletName)

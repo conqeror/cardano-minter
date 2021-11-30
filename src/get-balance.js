@@ -1,7 +1,5 @@
-const cardano = require("./cardano")
+import {selectWallet} from "./utils.js";
 
-const sender = cardano.wallet("ADAPI")
+const wallet = await selectWallet()
 
-console.log(
-    sender.balance()
-)
+console.log(wallet.balance())

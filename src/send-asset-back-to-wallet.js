@@ -1,17 +1,25 @@
-const cardano = require("./cardano")
+import cardano from './cardano.js'
+import {selectWallet} from "./utils.js";
+import enquirer from "enquirer";
 
-// 1. get the wallet
+const sender = await selectWallet()
 
-const sender = cardano.wallet("ADAPI")
+const tokens = Object.keys(sender.balance().value).filter((token) => token !== 'lovelace')
 
-// 2. define the transaction
+const {tokensToSend} = await enquirer.prompt({
+    type: 'multiselect',
+    name: 'tokensToSend',
+    message: 'Pick tokens to send',
+    choices: tokens,
+})
 
-console.log(
-    "Balance of Sender wallet: " +
-    cardano.toAda(sender.balance().value.lovelace) + " ADA"
-)
+const {receiver} = await enquirer.prompt({
+    type: 'input',
+    name: 'receiver',
+    message: 'Enter receiver address'
+})
 
-const receiver = "addr1qym6pxg9q4ussr96c9e6xjdf2ajjdmwyjknwculadjya488pqap23lgmrz38glvuz8qlzdxyarygwgu3knznwhnrq92q0t2dv0"
+const adaToSend = 1.5*tokensToSend.length
 
 const txInfo = {
     txIn: cardano.queryUtxo(sender.paymentAddr),
@@ -19,24 +27,22 @@ const txInfo = {
         {
             address: sender.paymentAddr,
             value: {
-                lovelace: sender.balance().value.lovelace - cardano.toLovelace(1.5)
+                ...sender.balance().value,
+                ...Object.fromEntries(tokensToSend.map(asset => [asset, 0])),
+                lovelace: sender.balance().value.lovelace - cardano.toLovelace(adaToSend)
             }
         },
         {
             address: receiver,
             value: {
-                lovelace: cardano.toLovelace(1.5),
-                "ad9c09fa0a62ee42fb9555ef7d7d58e782fa74687a23b62caf3a8025.BerrySpaceGreen": 1
+                lovelace: cardano.toLovelace(adaToSend),
+                ...Object.fromEntries(tokensToSend.map(asset => [asset, 1])),
             }
         }
     ]
 }
 
-// 3. build the transaction
-
 const raw = cardano.transactionBuildRaw(txInfo)
-
-// 4. calculate the fee
 
 const fee = cardano.transactionCalculateMinFee({
     ...txInfo,
@@ -44,22 +50,14 @@ const fee = cardano.transactionCalculateMinFee({
     witnessCount: 1
 })
 
-// 5. pay the fee by subtracting it from the sender utxo
-
 txInfo.txOut[0].value.lovelace -= fee
 
-// 6. build the final transaction
-
 const tx = cardano.transactionBuildRaw({ ...txInfo, fee })
-
-// 7. sign the transaction
 
 const txSigned = cardano.transactionSign({
     txBody: tx,
     signingKeys: [sender.payment.skey]
 })
-
-// 8. submit the transaction
 
 const txHash = cardano.transactionSubmit(txSigned)
 

@@ -1,19 +1,10 @@
-const CardanocliJs = require("cardanocli-js");
-const os = require("os");
-const path = require("path");
+import CardanoCliJs from "cardanocli-js"
+import config from "./config.js";
 
-const dir = path.join(os.homedir(), "projects/cardano-minter");
-const shelleyPath = path.join(
-  os.homedir(),
-  "mainnet-relay",
-  "mainnet-shelley-genesis.json"
-);
-
-const cardanocliJs = new CardanocliJs({
-//   era: "mary",
-  network: `mainnet`,
-  dir,
-  shelleyGenesisPath: shelleyPath,
+const cardanoCliJs = new CardanoCliJs({
+  network: config.network === 'testnet' ? 'testnet-magic 1097911063' : 'mainnet',
+  dir: config.tmpDirLocation,
+  shelleyGenesisPath: config.shelleyGenesisPath,
 });
 
-module.exports = cardanocliJs
+export default cardanoCliJs

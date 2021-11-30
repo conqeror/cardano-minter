@@ -1,95 +1,140 @@
-const cardano = require("./cardano")
+import cardano from './cardano.js'
+import config from './config.js'
+import enquirer from "enquirer"
+import {buildTransaction, selectWallet, signTransaction} from "./utils.js";
 
-// 1. Get the wallet
+function chunkSubstr(str, size) {
+    const numChunks = Math.ceil(str.length / size)
+    const chunks = new Array(numChunks)
 
-const wallet = cardano.wallet("ADAPI")
+    for (let i = 0, o = 0; i < numChunks; ++i, o += size) {
+        chunks[i] = str.substr(o, size)
+    }
 
-// 2. Define mint script
-
-const mintScript = {
-    keyHash: cardano.addressKeyHash(wallet.name),
-    type: "sig"
+    return chunks
 }
 
-// 3. Create POLICY_ID
+const wallet = await selectWallet()
 
-const POLICY_ID = cardano.transactionPolicyid(mintScript)
+const invalidAfter = cardano.queryTip().slot + config.numOfSlots
 
-// 4. Define ASSET_NAME
+const mintScript = {
+    type: "all",
+    scripts: [
+        {
+            keyHash: cardano.addressKeyHash(wallet.name),
+            type: "sig"
+        },
+        {
+            "type": "before",
+            "slot": invalidAfter
+        },
+    ]
+}
 
-const ASSET_NAME = "BerrySpaceGreen"
+const policyId = cardano.transactionPolicyid(mintScript)
 
-// 5. Create ASSET_ID
 
-const ASSET_ID = POLICY_ID + "." + ASSET_NAME
+const {includeRoyalty} = await enquirer.prompt({
+    type: 'confirm',
+    name: 'includeRoyalty',
+    message: 'Do you want to include royalty?'
+})
 
-// 6. Define metadata
+if (includeRoyalty) {
+    const {royaltyInfo: {rate, address}} = await enquirer.prompt({
+        type: 'form',
+        message: 'Royalty info:',
+        name: 'royaltyInfo',
+        choices: [
+            {name: 'rate', message: 'Rate (0.0 - 1.0)', initial: '0.1'},
+            {name: 'address', message: 'Address'}
+        ]
+    })
+
+    const royaltyMetadata = {
+        777: {
+            "rate": rate,
+            "address": chunkSubstr(address, 64),
+        }
+    }
+
+    const royaltyTx = {
+        txIn: wallet.balance().utxo,
+        txOut: [{
+            address: wallet.paymentAddr,
+            value: { ...wallet.balance().value, [policyId]: 1 }
+        }],
+        mint: [{
+            action: "mint", quantity: 1, asset: policyId, script: mintScript
+        }],
+        metadata: royaltyMetadata,
+        witnessCount: 2,
+        invalidAfter
+    }
+
+    const rawRoyalty = buildTransaction(royaltyTx)
+    const signedRoyalty = signTransaction(wallet, rawRoyalty)
+    const royaltyTxHash = cardano.transactionSubmit(signedRoyalty)
+    console.log("Royalty txHash:", royaltyTxHash)
+
+    console.log("WAITING FOR TX TO GO THROUGH");
+    await new Promise(resolve => setTimeout(resolve, 20000));
+}
+
+const {assetName: assetNameBase} = await enquirer.prompt({
+    type: 'input',
+    name: 'assetName',
+    message: 'Asset name'
+})
+
+const {numOfNfts} = await enquirer.prompt({
+    type: 'input',
+    name: 'numOfNfts',
+    message: 'Number of NFTs',
+    initial: '1',
+})
+
+const assetNames = [...Array(Number(numOfNfts)).keys()].map(i => `${assetNameBase}${i}`)
 
 const metadata = {
     721: {
-        [POLICY_ID]: {
-            [ASSET_NAME]: {
-                name: ASSET_NAME,
+        [policyId]: {
+            ...Object.fromEntries(assetNames.map(assetName => [assetName, {
+                name: assetName,
                 image: "ipfs://QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE",
                 description: "Super Fancy Berry Space Green NFT",
                 type: "image/png",
-                src: "ipfs://Qmaou5UzxPmPKVVTM9GzXPrDufP55EDZCtQmpy3T64ab9N",
-                // other properties of your choice
-                authors: ["PIADA", "SBLYR"]
-            }
+                author: "Samko",
+            }]))
         }
     }
 }
 
-// 7. Define transaction
+const mint = assetNames.map(assetName => ({
+    action: "mint",
+    quantity: 1,
+    asset: `${policyId}.${assetName}`,
+    script: mintScript
+}))
 
 const tx = {
     txIn: wallet.balance().utxo,
-    txOut: [
-        {
-            address: wallet.paymentAddr,
-            value: { ...wallet.balance().value, [ASSET_ID]: 1 }
+    txOut: [{
+        address: wallet.paymentAddr,
+        value: {
+            ...wallet.balance().value,
+            ...Object.fromEntries(assetNames.map(assetName => [`${policyId}.${assetName}`, 1])),
         }
-    ],
-    mint: {
-        actions: [{ type: "mint", quantity: 1, asset: ASSET_ID }],
-        script: [mintScript]
-    },
+    }],
+    mint,
     metadata,
-    witnessCount: 2
-}
-
-// 8. Build transaction
-
-const buildTransaction = (tx) => {
-
-    const raw = cardano.transactionBuildRaw(tx)
-    const fee = cardano.transactionCalculateMinFee({
-        ...tx,
-        txBody: raw
-    })
-
-    tx.txOut[0].value.lovelace -= fee
-
-    return cardano.transactionBuildRaw({ ...tx, fee })
+    witnessCount: 2,
+    invalidAfter
 }
 
 const raw = buildTransaction(tx)
-
-// 9. Sign transaction
-
-const signTransaction = (wallet, tx) => {
-
-    return cardano.transactionSign({
-        signingKeys: [wallet.payment.skey, wallet.payment.skey],
-        txBody: tx
-    })
-}
-
 const signed = signTransaction(wallet, raw)
-
-// 10. Submit transaction
-
 const txHash = cardano.transactionSubmit(signed)
 
-console.log(txHash)
+console.log("NFT txHash:", txHash)

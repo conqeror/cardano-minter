@@ -1,4 +1,5 @@
-const cardano = require('./cardano')
+import cardano from './cardano.js'
+import {selectWallet} from "./utils";
 
 const createTransaction = (tx) => {
   let raw = cardano.transactionBuildRaw(tx);
@@ -18,7 +19,7 @@ const signTransaction = (wallet, tx, script) => {
   });
 };
 
-let wallet = cardano.wallet("ADAPI");
+const wallet = await selectWallet()
 
 let mintScript = {
   keyHash: cardano.addressKeyHash(wallet.name),
